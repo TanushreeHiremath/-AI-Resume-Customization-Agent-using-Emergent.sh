@@ -1,64 +1,130 @@
-# src/resume_tailor/pdf_exporter.py
 import os
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import Paragraph, Frame
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.lib.colors import black
 
 def generate_pdf_resume(text, output_path):
     """
-    Generates a simple, ATS-friendly PDF with plain text from `text`.
+    Generates a professional PDF resume with proper formatting similar to the example.
     """
     c = canvas.Canvas(output_path, pagesize=A4)
     width, height = A4
-
-    # Basic settings
+    
+    # Set margins
     x_margin = inch * 0.75
     y_margin = inch * 0.75
     y_position = height - y_margin
-
-    c.setFont("Helvetica-Bold", 12)
-    # Title: first line if present — otherwise we'll print top lines as normal
+    
+    # Create styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'Title',
+        parent=styles['Heading1'],
+        fontSize=16,
+        leading=18,
+        alignment=TA_LEFT,
+        spaceAfter=12,
+        textColor=black
+    )
+    section_style = ParagraphStyle(
+        'Section',
+        parent=styles['Heading2'],
+        fontSize=12,
+        leading=14,
+        alignment=TA_LEFT,
+        spaceBefore=12,
+        spaceAfter=6,
+        textColor=black
+    )
+    content_style = ParagraphStyle(
+        'Content',
+        parent=styles['BodyText'],
+        fontSize=10,
+        leading=12,
+        alignment=TA_LEFT,
+        spaceAfter=6,
+        textColor=black
+    )
+    bullet_style = ParagraphStyle(
+        'Bullet',
+        parent=styles['BodyText'],
+        fontSize=10,
+        leading=12,
+        leftIndent=10,
+        bulletIndent=0,
+        spaceAfter=4,
+        textColor=black
+    )
+    
+    # Process the text line by line
     lines = text.splitlines()
-    # If first line is the title, print bold a bit larger
-    if lines:
-        c.drawString(x_margin, y_position, lines[0])
-        y_position -= 16
-        # draw a line under title
-        c.setLineWidth(0.5)
-        c.line(x_margin, y_position + 6, width - x_margin, y_position + 6)
-        y_position -= 8
-        # start rest from lines[1:]
-        rest = lines[1:]
-    else:
-        rest = []
-
-    c.setFont("Helvetica", 10)
-    for line in rest:
-        # ensure we don't overflow margins
+    current_section = None
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for section headers (lines that are all caps or have special formatting)
+        if line.startswith('# '):
+            # Title line
+            title = line[2:].strip()
+            p = Paragraph(title, title_style)
+            p.wrapOn(c, width - 2*x_margin, height)
+            p.drawOn(c, x_margin, y_position - p.height)
+            y_position -= p.height + 12
+            
+            # Draw a horizontal line under the title
+            c.setStrokeColor(black)
+            c.setLineWidth(0.5)
+            c.line(x_margin, y_position, width - x_margin, y_position)
+            y_position -= 12
+        elif line.startswith('## '):
+            # Section header
+            section = line[3:].strip()
+            p = Paragraph(f'<b>{section}</b>', section_style)
+            p.wrapOn(c, width - 2*x_margin, height)
+            p.drawOn(c, x_margin, y_position - p.height)
+            y_position -= p.height + 6
+            current_section = section
+        elif line.startswith('- '):
+            # Bullet point
+            bullet = line[2:].strip()
+            p = Paragraph(f'• {bullet}', bullet_style)
+            p.wrapOn(c, width - 2*x_margin - 10, height)
+            p.drawOn(c, x_margin + 10, y_position - p.height)
+            y_position -= p.height
+        else:
+            # Regular content
+            if '|' in line and current_section in ['EDUCATION', 'INTERNSHIP EXPERIENCE']:
+                # Format as two-column layout for education and experience
+                parts = [part.strip() for part in line.split('|')]
+                if len(parts) == 2:
+                    c.setFont("Helvetica-Bold", 10)
+                    c.drawString(x_margin, y_position - 10, parts[0])
+                    c.setFont("Helvetica", 10)
+                    c.drawRightString(width - x_margin, y_position - 10, parts[1])
+                    y_position -= 14
+                else:
+                    p = Paragraph(line, content_style)
+                    p.wrapOn(c, width - 2*x_margin, height)
+                    p.drawOn(c, x_margin, y_position - p.height)
+                    y_position -= p.height
+            else:
+                p = Paragraph(line, content_style)
+                p.wrapOn(c, width - 2*x_margin, height)
+                p.drawOn(c, x_margin, y_position - p.height)
+                y_position -= p.height
+        
+        # Check for page break
         if y_position <= y_margin:
             c.showPage()
             y_position = height - y_margin
-            c.setFont("Helvetica", 10)
-        # handle long lines: wrap roughly by width
-        max_chars = 95  # approximate; adjust if needed
-        if len(line) <= max_chars:
-            c.drawString(x_margin, y_position, line)
-            y_position -= 12
-        else:
-            # naive wrap
-            while len(line) > 0:
-                chunk = line[:max_chars]
-                # try to break at last space
-                if len(line) > max_chars:
-                    sp = chunk.rfind(" ")
-                    if sp > 20:
-                        chunk = line[:sp]
-                c.drawString(x_margin, y_position, chunk)
-                y_position -= 12
-                line = line[len(chunk):].lstrip()
-                if y_position <= y_margin:
-                    c.showPage()
-                    y_position = height - y_margin
-                    c.setFont("Helvetica", 10)
+            current_section = None
+    
     c.save()
     return output_path
